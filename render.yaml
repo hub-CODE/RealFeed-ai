@@ -2,6 +2,22 @@ services:
   - type: web
     name: realfeed-ai
     env: python
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn app:app"
     plan: free
+
+    buildCommand: |
+      echo "Using Python version:"
+      python --version
+      pip install --upgrade pip
+      pip install -r requirements.txt
+
+    startCommand: gunicorn app:app --timeout 300
+
+    # Force correct Python version
+    envVars:
+      PYTHON_VERSION: 3.10.14
+
+    # Increase memory for model loading
+    disk:
+      name: model-data
+      mountPath: /opt/render/project/model
+      sizeGB: 2
