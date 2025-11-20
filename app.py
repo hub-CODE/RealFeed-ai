@@ -26,18 +26,69 @@ app = Flask(__name__)
 HF_TOKEN = os.environ.get("HF_TOKEN")
 logger.info(f"HF_TOKEN present: {bool(HF_TOKEN)}")
 
-# Use a reliable model that's known to work with inference API
-model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"  # This model is reliable and accessible
-# Alternative models you can try:
-# model_id = "distilbert-base-uncased-finetuned-sst-2-english"  # Sentiment analysis
-# model_id = "facebook/bart-large-mnli"  # Zero-shot classification
-
+# Use a model specifically trained for fake news detection
+model_id = "ghanashyamvtatti/fake-news-bert-base-uncased"  # Actually trained for fake news detection
 API_URL = f"https://api-inference.huggingface.co/models/{model_id}"
 
 headers = {
     "Authorization": f"Bearer {HF_TOKEN}" if HF_TOKEN else "",
     "Content-Type": "application/json"
 }
+
+def smart_fallback_classification(text):
+    """Smart fallback classification specifically tuned for fake news detection"""
+    if not text:
+        return "UNVERIFIED", 0.0
+    
+    text_lower = text.lower()
+    
+    # Strong indicators of potentially fake news
+    strong_fake_indicators = [
+        'fake', 'false', 'hoax', 'conspiracy', 'debunked', 'misleading',
+        'scam', 'fraud', 'clickbait', 'satire', 'parody', 'phishing'
+    ]
+    
+    # Moderate indicators of potentially fake news
+    moderate_fake_indicators = [
+        'rumor', 'unverified', 'bogus', 'unconfirmed', 'allegedly',
+        'shocking', 'you won\'t believe', 'breaking!', 'urgent!',
+        'secret', 'they don\'t want you to know', 'hidden truth'
+    ]
+    
+    # Strong indicators of credible news
+    strong_real_indicators = [
+        'study', 'research', 'scientists', 'experts', 'official',
+        'confirmed', 'report', 'data', 'analysis', 'findings',
+        'peer-reviewed', 'journal', 'university', 'according to study'
+    ]
+    
+    # Moderate indicators of credible news
+    moderate_real_indicators = [
+        'announced', 'published', 'discovery', 'breakthrough',
+        'according to', 'source said', 'report shows', 'data shows'
+    ]
+    
+    # Calculate scores
+    fake_score = (
+        sum(3 for keyword in strong_fake_indicators if keyword in text_lower) +
+        sum(1 for keyword in moderate_fake_indicators if keyword in text_lower)
+    )
+    
+    real_score = (
+        sum(3 for keyword in strong_real_indicators if keyword in text_lower) +
+        sum(1 for keyword in moderate_real_indicators if keyword in text_lower)
+    )
+    
+    # Determine classification
+    if fake_score > real_score:
+        confidence = min(70 + (fake_score * 8), 95)
+        return "FAKE", confidence
+    elif real_score > fake_score:
+        confidence = min(75 + (real_score * 7), 95)
+        return "REAL", confidence
+    else:
+        # Tie or no clear indicators - be conservative
+        return "REAL", 60.0
 
 def hf_predict(text):
     """Classify news headline using Hugging Face model"""
@@ -54,7 +105,7 @@ def hf_predict(text):
         response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
         
         if response.status_code == 404:
-            logger.error(f"Model {model_id} not found")
+            logger.error(f"Model {model_id} not found, using fallback")
             return smart_fallback_classification(text)
         elif response.status_code == 503:
             logger.info("Model is loading, please try again in a few seconds")
@@ -65,20 +116,18 @@ def hf_predict(text):
 
         data = response.json()
         
-        # Handle different response formats based on the model
+        # Handle response from fake news detection model
         if isinstance(data, list) and len(data) > 0:
-            # For sentiment analysis models
             prediction = data[0]
             label = prediction.get('label', 'UNKNOWN')
             score = prediction.get('score', 0.0)
             
-            # Map sentiment to REAL/FAKE (positive/neutral = REAL, negative = potentially FAKE)
-            if label.upper() in ['POSITIVE', 'LABEL_2']:  # POSITIVE sentiment
-                return "REAL", round(score * 100, 2)
-            elif label.upper() in ['NEGATIVE', 'LABEL_0']:  # NEGATIVE sentiment
+            # For fake news detection models, labels are usually 'FAKE'/'REAL' or 'LABEL_0'/'LABEL_1'
+            # Map the labels properly based on the model's training
+            if label.upper() in ['FAKE', 'LABEL_1', 'INACCURATE']:
                 return "FAKE", round(score * 100, 2)
-            else:  # NEUTRAL or other
-                return "REAL", round(score * 100 * 0.7, 2)  # Lower confidence for neutral
+            else:  # REAL, LABEL_0, or ACCURATE
+                return "REAL", round(score * 100, 2)
                 
         else:
             logger.warning(f"Unexpected response format: {data}")
@@ -90,40 +139,6 @@ def hf_predict(text):
     except Exception as e:
         logger.error(f"Error in hf_predict: {e}")
         return smart_fallback_classification(text)
-
-def smart_fallback_classification(text):
-    """Smart fallback classification based on text content"""
-    if not text:
-        return "UNVERIFIED", 0.0
-    
-    text_lower = text.lower()
-    
-    # Keywords that might indicate fake news
-    fake_keywords = [
-        'fake', 'false', 'hoax', 'conspiracy', 'rumor', 'unverified', 
-        'bogus', 'debunked', 'misleading', 'scam', 'fraud', 'clickbait',
-        'shocking', 'you won\'t believe', 'breaking!', 'urgent!'
-    ]
-    
-    # Keywords that might indicate real news
-    real_keywords = [
-        'study', 'research', 'scientists', 'experts', 'official', 
-        'confirmed', 'report', 'data', 'analysis', 'findings',
-        'according to', 'peer-reviewed', 'journal', 'university'
-    ]
-    
-    fake_score = sum(1 for keyword in fake_keywords if keyword in text_lower)
-    real_score = sum(1 for keyword in real_keywords if keyword in text_lower)
-    
-    if fake_score > real_score:
-        confidence = min(80 + (fake_score * 5), 95)
-        return "FAKE", confidence
-    elif real_score > fake_score:
-        confidence = min(85 + (real_score * 5), 95)
-        return "REAL", confidence
-    else:
-        # Neutral or mixed signals - lean towards REAL but with lower confidence
-        return "REAL", 65.0
 
 # ---------------- HELPERS ----------------
 def get_latest_headlines(query="", page_size=6):
@@ -284,7 +299,9 @@ def test_classify():
         "Breaking news: Major earthquake reported",
         "This is completely made up conspiracy theory",
         "New study shows benefits of renewable energy",
-        "Viral hoax about alien invasion debunked by experts"
+        "Viral hoax about alien invasion debunked by experts",
+        "Official report confirms economic growth data",
+        "Clickbait story about miracle cure proven false"
     ]
     
     results = []
