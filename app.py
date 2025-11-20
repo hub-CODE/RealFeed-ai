@@ -299,23 +299,29 @@ from flask import jsonify
 
 # ---------------- HF PREDICT ----------------
 
+# ---------------- HF PREDICT ----------------
 import os
 import requests
 
-# Get HF_TOKEN from environment variables
 HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
     raise ValueError("HF_TOKEN is not set in environment variables!")
 
 model_id = "bert-base-cased-finetuned-fake-news"
-API_URL = f"https://api-inference.huggingface.co/models/{model_id}"
+
+# NEW SUPPORTED ENDPOINT
+API_URL = "https://router.huggingface.co/inference"
+
 headers = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
 }
 
 def hf_predict(text):
-    payload = {"inputs": text}
+    payload = {
+        "model": model_id,
+        "inputs": text
+    }
 
     try:
         response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
@@ -326,14 +332,16 @@ def hf_predict(text):
 
         data = response.json()
 
-        if not data or not isinstance(data, list) or not isinstance(data[0], dict):
-            print("HF API returned invalid data:", data)
+        # Data returns: {"outputs": [{"label": "...", "score": 0.98}]}
+        outputs = data.get("outputs", [])
+        if not outputs:
+            print("HF API invalid:", data)
             return "UNKNOWN", 0.0
 
-        raw_label = data[0].get("label", "UNKNOWN")
-        confidence = round(float(data[0].get("score", 0.0)) * 100, 2)
+        raw_label = outputs[0].get("label", "UNKNOWN")
+        confidence = round(float(outputs[0].get("score", 0.0)) * 100, 2)
 
-        # Map labels properly
+        # Map HF labels
         if raw_label.upper() in ["FAKE", "LABEL_0", "0"]:
             label = "FAKE"
         else:
@@ -344,12 +352,6 @@ def hf_predict(text):
     except Exception as e:
         print("Error in hf_predict:", e)
         return "UNKNOWN", 0.0
-
-# Example usage
-if __name__ == "__main__":
-    text = "Breaking news: Scientists discovered a cure for the common cold!"
-    label, conf = hf_predict(text)
-    print(f"Label: {label}, Confidence: {conf}%")
 
 
 # ---------------- ROUTE ----------------
