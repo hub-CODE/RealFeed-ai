@@ -1,404 +1,573 @@
 # app.py
 from flask import Flask, request, render_template_string
 import requests
+import os
+import logging
+from datetime import datetime
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ---------------- CONFIG ----------------
-NEWS_API_KEY = "6e5374b8437f415a9055a8f0d08f58de"  # NewsAPI key
-LABELS_MAP = {0: "FAKE", 1: "REAL"}
+NEWS_API_KEY = "6e5374b8437f415a9055a8f0d08f58de"
 FALLBACK_HEADLINES = [
     "Scientists find new method to recycle plastic",
     "Major tech company announces AI research breakthrough",
     "Global markets respond to policy changes",
+    "Climate summit reaches new agreement on emissions",
+    "Breakthrough in renewable energy storage technology",
 ]
 
 # ---------------- FLASK APP ----------------
 app = Flask(__name__)
 
-# ---------------- HTML TEMPLATE ----------------
-html_template = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RealFeed — Verify Headlines</title>
-<style>
-:root {
-  --bg1: #0a0f1a; /* dark navy background */
-  --bg2: #111827; 
-  --card: rgba(255, 255, 255, 0.05); /* semi-transparent glass card */
-  --muted: #9aa4b2;
-  --accent: #7c5cff; /* purple accent */
-  --accent-light: rgba(124, 92, 255, 0.15);
-  --glass-blur: 10px;
-}
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  font-family: Inter, "Segoe UI", Roboto, system-ui, -apple-system, "Helvetica Neue", Arial;
-  background: linear-gradient(180deg, var(--bg1), var(--bg2));
-  color: #e6eef8;
-  display: flex;
-  justify-content: center;
-  padding: 36px 18px;
-}
-
-.container {
-  width: 100%;
-  max-width: 920px;
-  margin: 0 auto;
-}
-
-.header {
-  text-align: center;
-  margin-bottom: 20px;
-}
-.title {
-  font-size: 36px;
-  color: var(--accent);
-  font-weight: 700;
-  text-shadow: 0 6px 18px rgba(124, 92, 255, 0.1);
-}
-.subtitle {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-/* Search box */
-.search-wrap {
-  margin: 20px 0;
-  display: flex;
-  justify-content: center;
-}
-.search-card {
-  backdrop-filter: blur(var(--glass-blur));
-  background: var(--card);
-  border-radius: 999px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  width: 100%;
-  max-width: 820px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 16px;
-  transition: all 0.3s ease;
-}
-.search-card:focus-within {
-  border-color: var(--accent);
-}
-
-.search-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: #e6eef8;
-  font-size: 16px;
-  padding: 10px 14px;
-}
-.search-input::placeholder { color: #7b8695; }
-
-.topic-select {
-  background: rgba(255,255,255,0.08);
-  color: #d7e2f2;
-  border: none;
-  padding: 8px 10px;
-  border-radius: 10px;
-  font-size: 14px;
-  outline: none;
-}
-
-.btn {
-  background: var(--accent);
-  color: white;
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: none;
-  cursor: pointer;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-.btn:hover { filter: brightness(1.1); transform: translateY(-2px); }
-
-/* Cards */
-.main {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 20px;
-  margin-top: 30px;
-}
-
-.card {
-  background: var(--card);
-  backdrop-filter: blur(var(--glass-blur));
-  border-radius: 18px;
-  padding: 18px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255,255,255,0.08);
-  transition: transform 0.3s ease;
-}
-.card:hover {
-  transform: translateY(-5px);
-}
-
-.headline-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-.headline {
-  font-size: 17px;
-  font-weight: 600;
-  color: #eaf1ff;
-  margin: 0 0 8px 0;
-}
-.meta {
-  font-size: 13px;
-  color: var(--muted);
-}
-.summary {
-  margin-top: 8px;
-  font-size: 14px;
-  color: #cfe0ff;
-  opacity: 0.95;
-}
-
-/* Label + progress */
-.label {
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 13px;
-  min-width: 90px;
-  text-align: center;
-}
-.label-real {
-  background: rgba(34,197,94,0.15);
-  color: #9ff7bf;
-  border: 1px solid rgba(34,197,94,0.3);
-}
-.label-fake {
-  background: rgba(235,87,87,0.15);
-  color: #ffb3b3;
-  border: 1px solid rgba(235,87,87,0.3);
-}
-
-.progress-container {
-  background: rgba(255,255,255,0.1);
-  border-radius: 10px;
-  overflow: hidden;
-  height: 8px;
-  margin-top: 6px;
-}
-.progress-bar {
-  height: 100%;
-  border-radius: 10px;
-  background: var(--accent);
-  width: 0%;
-  transition: width 1s ease;
-}
-
-/* Footer */
-.footer {
-  margin-top: 24px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-  opacity: 0.9;
-}
-.footer .name {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-/* Responsive */
-@media (max-width: 600px){
-  .title { font-size: 24px; }
-  .search-card { padding: 10px; }
-  .search-input { font-size: 14px; }
-}
-</style>
-
-</head>
-<body>
-<div class="container">
-  <div class="header">
-    <div class="title">RealFeed</div>
-    <div class="subtitle">Verify headlines fast — search a topic or check top news</div>
-  </div>
-
-  <div class="search-wrap">
-    <form class="search-card" method="POST">
-      <input class="search-input" name="query" placeholder="Enter topic or leave blank for latest news" value="{{ query | default('') }}">
-      <button class="btn" type="submit">Check</button>
-      {% if loading %}<span class="loader"></span>{% endif %}
-    </form>
-  </div>
-
-  <div class="main">
-    {% if error_msg %}<div class="card">{{ error_msg }}</div>{% endif %}
-
-    {% for item in results %}
-      <div class="card">
-        <div class="headline">{{ item.title }}</div>
-        <div class="meta">{{ item.source }} • {{ item.published }}</div>
-        <div class="summary">{{ item.summary }}</div>
-        <div style="width:120px; text-align:right;">
-            <div class="label {{ 'label-real' if item.label=='REAL' else 'label-fake' }}">
-                {{ item.label }}
-            </div>
-            <div class="confidence-bar">
-                <div class="bar-fill" style="width: {{ item.confidence }}%"></div>
-            </div>
-            <div class="conf-text">{{ item.confidence }}%</div>
-        </div>
-
-      </div>
-    {% endfor %}
-  </div>
-
-  <div class="footer">Built by <span style="color:var(--accent);font-weight:700;">Hubayl</span> • Data from NewsAPI.org</div>
-</div>
-<script>
-document.addEventListener("DOMContentLoaded", function(){
-  document.querySelectorAll(".bar-fill").forEach((bar, i) => {
-    const val = parseFloat(bar.dataset.confidence) || 0;
-    bar.style.width = "0%";
-    // staggered animation for nicer effect
-    setTimeout(() => { bar.style.width = val + "%"; }, 100 + i*80);
-  });
-});
-</script>
-</body>
-</html>
-"""
-
-# ---------------- HELPERS ----------------
-def get_latest_headlines(query="", page_size=5):
-    base = "https://newsapi.org/v2/top-headlines"
-    params = {"apiKey": NEWS_API_KEY, "pageSize": page_size, "language": "en"}
-    if query: params["q"] = query
-    try:
-        resp = requests.get(base, params=params, timeout=8)
-        if resp.status_code==200:
-            articles = resp.json().get("articles", [])
-            return [{"title":a.get("title") or "", "source":a.get("source",{}).get("name",""), "published":a.get("publishedAt","")[:10]} for a in articles]
-        else: return []
-    except: return []
-
-def summarize(text, max_len=40):
-    return text if len(text.split())<6 else (text[:max_len]+"..." if len(text)>max_len else text)
-
-import json
-from flask import jsonify
-
-# ---------------- HF PREDICT ----------------
-
-import os
-import requests
-
+# ---------------- HF PREDICT SETUP ----------------
 HF_TOKEN = os.environ.get("HF_TOKEN")
-if not HF_TOKEN:
-    raise ValueError("HF_TOKEN is not set in environment variables!")
+logger.info(f"HF_TOKEN present: {bool(HF_TOKEN)}")
 
 model_id = "mrm8488/bert-tiny-finetuned-fake-news"
-
-API_URL = "https://router.huggingface.co/inference"
+API_URL = f"https://api-inference.huggingface.co/models/{model_id}"
 
 headers = {
-    "Authorization": f"Bearer {HF_TOKEN}",
+    "Authorization": f"Bearer {HF_TOKEN}" if HF_TOKEN else "",
     "Content-Type": "application/json"
 }
 
 def hf_predict(text):
-    payload = {
-        "model": model_id,
-        "inputs": text
-    }
+    """Classify news headline using Hugging Face model"""
+    if not HF_TOKEN:
+        logger.warning("HF_TOKEN not set, using fallback")
+        # Return more realistic fake data
+        if any(word in text.lower() for word in ['fake', 'false', 'hoax', 'scam']):
+            return "FAKE", 78.0
+        return "REAL", 85.0
+    
+    if not text or text == "[Removed]":
+        return "UNVERIFIED", 0.0
 
+    payload = {"inputs": text}
+    
     try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
-
-        # Router returns 200 only on success
-        if response.status_code != 200:
-            print("HF API Error:", response.status_code, response.text)
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 404:
+            logger.error(f"Model {model_id} not found")
+            return "UNKNOWN", 0.0
+        elif response.status_code == 503:
+            logger.info("Model is loading, please try again in a few seconds")
+            return "LOADING", 0.0
+        elif response.status_code != 200:
+            logger.error(f"HF API Error {response.status_code}: {response.text}")
             return "UNKNOWN", 0.0
 
         data = response.json()
-
-        # Router returns {"outputs": [{"label": "...", "score": ...}]}
-        outputs = data.get("outputs", [])
-        if not outputs:
-            print("HF API invalid:", data)
+        
+        # Handle different response formats
+        if isinstance(data, list) and len(data) > 0:
+            prediction = data[0]
+            label = prediction.get('label', 'UNKNOWN')
+            score = prediction.get('score', 0.0)
+        elif isinstance(data, dict) and 'label' in data:
+            label = data.get('label', 'UNKNOWN')
+            score = data.get('score', 0.0)
+        else:
+            logger.warning(f"Unexpected response format: {data}")
             return "UNKNOWN", 0.0
 
-        prediction = outputs[0]
-        raw_label = prediction.get("label", "UNKNOWN")
-        score = prediction.get("score", 0.0)
-
         confidence = round(float(score) * 100, 2)
-
-        # Model uses FAKE / REAL
-        if raw_label.lower() == "fake":
-            label = "FAKE"
+        
+        # Map labels to consistent format
+        if label.upper() in ['FAKE', 'LABEL_0']:
+            return "FAKE", confidence
         else:
-            label = "REAL"
+            return "REAL", confidence
 
-        return label, confidence
-
+    except requests.exceptions.Timeout:
+        logger.error("HF API request timeout")
+        return "TIMEOUT", 0.0
     except Exception as e:
-        print("Error in hf_predict:", e)
+        logger.error(f"Error in hf_predict: {e}")
         return "UNKNOWN", 0.0
 
-
-# ---------------- ROUTE ----------------
-@app.route("/", methods=["GET","POST"])
-def home():
-    query = (request.form.get("query") or "").strip() if request.method=="POST" else ""
-    results = []
-    loading = False
-    error_msg = None
-
-    headlines = get_latest_headlines(query=query, page_size=6)
-    if not headlines:
-        if query=="": headlines = [{"title":h,"source":"Local","published":""} for h in FALLBACK_HEADLINES]
-        else: error_msg="No results found or NewsAPI returned nothing."
-
-    for h in headlines:
-        title = h["title"]
-        label, conf = hf_predict(title)
-        results.append({
-           "title": title,
-           "source": h.get("source", ""),
-           "published": h.get("published", ""),
-           "label": label,
-           "confidence": conf,
-           "summary": summarize(title)
-    })
-
-
-    return render_template_string(html_template, results=results, query=query, error_msg=error_msg, loading=loading)
-
-@app.route("/debug-classifier")
-def debug_classifier():
-    if classifier is None:
-        return {"error": "classifier is None (model not loaded)"}, 500
-
-    sample = "NASA discovers new exoplanet"
+# ---------------- HELPERS ----------------
+def get_latest_headlines(query="", page_size=6):
+    """Fetch latest headlines from NewsAPI"""
+    if query:
+        # Use everything endpoint for search queries
+        base_url = "https://newsapi.org/v2/everything"
+        params = {
+            "apiKey": NEWS_API_KEY,
+            "pageSize": page_size, 
+            "language": "en",
+            "sortBy": "relevancy",
+            "q": query
+        }
+    else:
+        # Use top-headlines for general news
+        base_url = "https://newsapi.org/v2/top-headlines"
+        params = {
+            "apiKey": NEWS_API_KEY,
+            "pageSize": page_size, 
+            "language": "en",
+            "country": "us"
+        }
+        
     try:
-        raw = classifier(sample, top_k=3)
-        print("DEBUG /debug-classifier raw:", raw)
-        return {"sample": sample, "raw_output": raw}
+        response = requests.get(base_url, params=params, timeout=10)
+        logger.info(f"NewsAPI request to: {base_url}")
+        logger.info(f"NewsAPI params: {params}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            articles = data.get("articles", [])
+            logger.info(f"Found {len(articles)} articles")
+            
+            processed_articles = []
+            for article in articles:
+                title = article.get("title", "").strip()
+                if title and title != "[Removed]":
+                    published = article.get("publishedAt", "")
+                    if published:
+                        try:
+                            # Format date nicely
+                            date_obj = datetime.fromisoformat(published.replace('Z', '+00:00'))
+                            published = date_obj.strftime("%b %d, %Y")
+                        except:
+                            published = published[:10]
+                    else:
+                        published = "Recent"
+                        
+                    processed_articles.append({
+                        "title": title,
+                        "source": article.get("source", {}).get("name", "Unknown"),
+                        "published": published
+                    })
+            return processed_articles
+        else:
+            logger.error(f"NewsAPI error {response.status_code}: {response.text}")
+            return []
     except Exception as e:
-        print("debug error:", e)
-        return {"error": str(e)}, 500
+        logger.error(f"Error fetching headlines: {e}")
+        return []
 
+def create_fallback_results(query=""):
+    """Create fallback results when no news is found"""
+    if query:
+        # Generate relevant fallback headlines based on query
+        fallback_headlines = [
+            f"Latest developments in {query} industry",
+            f"New research reveals insights about {query}",
+            f"Experts discuss future of {query}",
+            f"Breaking: Major announcement regarding {query}",
+            f"Market trends show growth in {query} sector"
+        ]
+    else:
+        fallback_headlines = FALLBACK_HEADLINES
+    
+    return [{"title": h, "source": "Sample", "published": "Today"} for h in fallback_headlines]
+
+# ---------------- ROUTES ----------------
+@app.route("/", methods=["GET", "POST"])
+def home():
+    """Main route for the application"""
+    query = request.form.get("query", "").strip() if request.method == "POST" else ""
+    results = []
+    error_msg = None
+    show_demo_notice = not bool(HF_TOKEN)
+
+    try:
+        # Fetch headlines
+        headlines = get_latest_headlines(query=query or None)
+        
+        if not headlines:
+            # Use fallback headlines
+            headlines = create_fallback_results(query)
+            if query:
+                error_msg = f"No recent news found for '{query}'. Showing sample headlines for demonstration."
+            else:
+                error_msg = "Unable to fetch latest news. Showing sample headlines."
+
+        # Classify each headline
+        for headline in headlines:
+            label, confidence = hf_predict(headline["title"])
+            results.append({
+                "title": headline["title"],
+                "source": headline.get("source", "Unknown"),
+                "published": headline.get("published", "Recent"),
+                "label": label,
+                "confidence": confidence
+            })
+
+    except Exception as e:
+        logger.error(f"Error in main route: {e}")
+        error_msg = "A temporary error occurred. Please try again in a few moments."
+        # Still show fallback results even on error
+        headlines = create_fallback_results(query)
+        for headline in headlines:
+            label, confidence = hf_predict(headline["title"])
+            results.append({
+                "title": headline["title"],
+                "source": headline.get("source", "Unknown"),
+                "published": headline.get("published", "Recent"),
+                "label": label,
+                "confidence": confidence
+            })
+
+    return render_template_string(
+        HTML_TEMPLATE, 
+        results=results, 
+        query=query, 
+        error_msg=error_msg,
+        hf_token_configured=bool(HF_TOKEN)
+    )
+
+@app.route("/classify", methods=["POST"])
+def classify_text():
+    """Direct classification endpoint for custom text"""
+    data = request.get_json()
+    text = data.get("text", "").strip()
+    
+    if not text:
+        return {"error": "No text provided"}, 400
+    
+    label, confidence = hf_predict(text)
+    
+    return {
+        "text": text,
+        "label": label,
+        "confidence": confidence,
+        "is_demo": not bool(HF_TOKEN)
+    }
+
+@app.route("/debug")
+def debug():
+    """Debug endpoint to check environment variables"""
+    debug_info = {
+        "hf_token_set": bool(os.environ.get("HF_TOKEN")),
+        "hf_token_length": len(os.environ.get("HF_TOKEN", "")),
+        "model_id": model_id,
+        "api_url": API_URL,
+        "news_api_key_set": bool(NEWS_API_KEY)
+    }
+    return debug_info
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint for Render"""
+    return {"status": "healthy", "service": "RealFeed", "hf_token_configured": bool(HF_TOKEN)}
+
+# ---------------- HTML TEMPLATE ----------------
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>RealFeed — Verify Headlines</title>
+    <style>
+        :root {
+            --bg1: #0a0f1a;
+            --bg2: #111827;
+            --card: rgba(255, 255, 255, 0.05);
+            --muted: #9aa4b2;
+            --accent: #7c5cff;
+            --accent-light: rgba(124, 92, 255, 0.15);
+            --real-color: #22c55e;
+            --fake-color: #ef4444;
+            --unverified-color: #6b7280;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(180deg, var(--bg1), var(--bg2));
+            color: #e6eef8;
+            min-height: 100vh;
+            padding: 20px 15px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), #9d5cff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 1rem;
+        }
+
+        .search-card {
+            background: var(--card);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 30px;
+        }
+
+        .search-form {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+            outline: none;
+        }
+
+        .search-input::placeholder {
+            color: var(--muted);
+        }
+
+        .search-input:focus {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(124, 92, 255, 0.3);
+        }
+
+        .news-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .news-card {
+            background: var(--card);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.2s ease;
+        }
+
+        .news-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .news-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 12px;
+        }
+
+        .news-title {
+            flex: 1;
+            font-size: 1.1rem;
+            font-weight: 600;
+            line-height: 1.4;
+            color: #f1f5f9;
+        }
+
+        .label {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            min-width: 100px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .label-real {
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .label-fake {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .label-unverified {
+            background: rgba(107, 114, 128, 0.15);
+            color: #9ca3af;
+            border: 1px solid rgba(107, 114, 128, 0.3);
+        }
+
+        .news-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+
+        .confidence {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .confidence-bar {
+            width: 60px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            padding: 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .info-message {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+            padding: 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .demo-notice {
+            background: rgba(124, 92, 255, 0.1);
+            border: 1px solid rgba(124, 92, 255, 0.3);
+            color: #a78bfa;
+            padding: 12px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .title { font-size: 2rem; }
+            .search-form { flex-direction: column; }
+            .news-header { flex-direction: column; }
+            .label { align-self: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="title">RealFeed</h1>
+            <p class="subtitle">Verify headlines fast — search a topic or check top news</p>
+        </div>
+
+        {% if not hf_token_configured %}
+        <div class="demo-notice">
+            🔧 Demo Mode: Using sample classifications. Add HF_TOKEN for real AI analysis.
+        </div>
+        {% endif %}
+
+        <div class="search-card">
+            <form class="search-form" method="POST">
+                <input class="search-input" name="query" placeholder="Enter topic (e.g., 'technology', 'politics', 'sports') or leave blank for latest news" value="{{ query | default('') }}">
+                <button class="btn" type="submit">Verify Headlines</button>
+            </form>
+        </div>
+
+        {% if error_msg %}
+        <div class="info-message">
+            {{ error_msg }}
+        </div>
+        {% endif %}
+
+        <div class="news-grid">
+            {% for item in results %}
+            <div class="news-card">
+                <div class="news-header">
+                    <div class="news-title">{{ item.title }}</div>
+                    <div class="label label-{{ item.label.lower() }}">{{ item.label }} {% if item.confidence > 0 %}({{ item.confidence }}%){% endif %}</div>
+                </div>
+                <div class="news-meta">
+                    <span>{{ item.source }} • {{ item.published }}</span>
+                    <div class="confidence">
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: {{ item.confidence }}%; background: {% if item.label == 'REAL' %}var(--real-color){% elif item.label == 'FAKE' %}var(--fake-color){% else %}var(--unverified-color){% endif %};"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="footer">
+            Built by <strong style="color: var(--accent);">Hubayl</strong> • Data from NewsAPI.org
+        </div>
+    </div>
+
+    <script>
+        // Animate confidence bars on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const bars = document.querySelectorAll('.confidence-fill');
+            bars.forEach(bar => {
+                const width = bar.style.width;
+                bar.style.width = '0%';
+                setTimeout(() => {
+                    bar.style.width = width;
+                }, 100);
+            });
+        });
+    </script>
+</body>
+</html>
+"""
 
 # ---------------- RUN ----------------
-if __name__=="__main__":
-    app.run(debug=True, port=5000)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
