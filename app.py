@@ -300,6 +300,7 @@ from flask import jsonify
 # ---------------- HF PREDICT ----------------
 
 # ---------------- HF PREDICT ----------------
+# ---------------- HF PREDICT ----------------
 import os
 import requests
 
@@ -307,9 +308,8 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
     raise ValueError("HF_TOKEN is not set in environment variables!")
 
-model_id = "bert-base-cased-finetuned-fake-news"
+model_id = "mrm8488/bert-tiny-finetuned-fake-news"
 
-# NEW SUPPORTED ENDPOINT
 API_URL = "https://router.huggingface.co/inference"
 
 headers = {
@@ -332,7 +332,6 @@ def hf_predict(text):
 
         data = response.json()
 
-        # Data returns: {"outputs": [{"label": "...", "score": 0.98}]}
         outputs = data.get("outputs", [])
         if not outputs:
             print("HF API invalid:", data)
@@ -341,7 +340,6 @@ def hf_predict(text):
         raw_label = outputs[0].get("label", "UNKNOWN")
         confidence = round(float(outputs[0].get("score", 0.0)) * 100, 2)
 
-        # Map HF labels
         if raw_label.upper() in ["FAKE", "LABEL_0", "0"]:
             label = "FAKE"
         else:
@@ -352,7 +350,6 @@ def hf_predict(text):
     except Exception as e:
         print("Error in hf_predict:", e)
         return "UNKNOWN", 0.0
-
 
 # ---------------- ROUTE ----------------
 @app.route("/", methods=["GET","POST"])
