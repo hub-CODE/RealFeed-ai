@@ -302,7 +302,7 @@ from flask import jsonify
 import requests
 
 API_URL = "https://router.huggingface.co/hf-inference/your-model"
-headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 response = requests.post(API_URL, headers=headers, json={"inputs": "Hello"})
 
