@@ -1,26 +1,10 @@
 # app.py
 from flask import Flask, request, render_template_string
 import requests
-from transformers import pipeline
 
-try:
-    HF_MODEL = "mrm8488/bert-tiny-fake-news"   # your model
-    print("Loading HF pipeline...")
-    classifier = pipeline(
-        "text-classification",
-        model=HF_MODEL,
-        tokenizer=HF_MODEL,
-        top_k=1
-    )
-    print("Model loaded successfully:", HF_MODEL)
-except Exception as e:
-    print("ERROR loading model:", e)
-    classifier = None
 
 # ---------------- CONFIG ----------------
 NEWS_API_KEY = "6e5374b8437f415a9055a8f0d08f58de"  # NewsAPI key
-HF_API_KEY = "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"  # Hugging Face API token
-HF_MODEL = "mrm8488/bert-tiny-finetuned-fake-news-detection"  # Example Hugging Face model
 LABELS_MAP = {0: "FAKE", 1: "REAL"}
 FALLBACK_HEADLINES = [
     "Scientists find new method to recycle plastic",
@@ -313,30 +297,44 @@ def summarize(text, max_len=40):
 import json
 from flask import jsonify
 
-classifier = pipeline(
-    "text-classification",
-    model="mrm8488/bert-tiny-finetuned-fake-news-detection",
-    tokenizer="mrm8488/bert-tiny-finetuned-fake-news-detection"
-)
-
-
 # ---------------- HF PREDICT ----------------
+import requests
+import os
+
+HF_TOKEN = os.getenv("HF_TOKEN")
+API_URL = "https://api-inference.huggingface.co/models/mrm8488/bert-base-cased-finetuned-fake-news"
+
+headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+
+import requests
+import os
+
+HF_TOKEN = os.getenv("HF_TOKEN")
+API_URL = "https://api-inference.huggingface.co/models/mrm8488/bert-base-cased-finetuned-fake-news"
+
+headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+
 def hf_predict(text):
-    """
-    Predict if text is FAKE or REAL using HF pipeline.
-    Returns label as 'FAKE' or 'REAL', and confidence as a percentage.
-    """
-    if classifier is None:
-        print("Classifier not loaded.")
+    if not HF_TOKEN:
+        print("ERROR: HF_TOKEN missing.")
         return "UNKNOWN", 0.0
 
     try:
-        result = classifier(text, top_k=1)[0]  # returns {'label': 'LABEL_0', 'score': 0.92}
-        # Map LABEL_0 / LABEL_1 to FAKE / REAL
-        idx = int(result["label"].split("_")[-1])
-        label = {0: "FAKE", 1: "REAL"}.get(idx, "UNKNOWN")
-        score = round(result["score"] * 100, 1)  # nice rounded percentage
-        return label, score
+        payload = {"inputs": text}
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+
+        data = response.json()[0][0]
+
+        raw_label = data.get("label", "UNKNOWN")
+        confidence = round(float(data.get("score", 0.0)) * 100, 2)
+
+        if raw_label in ["LABEL_0", "0", "NEGATIVE"]:
+            label = "REAL"
+        else:
+            label = "FAKE"
+
+        return label, confidence
+
     except Exception as e:
         print("Error in hf_predict:", e)
         return "UNKNOWN", 0.0
@@ -356,16 +354,16 @@ def home():
         else: error_msg="No results found or NewsAPI returned nothing."
 
     for h in headlines:
-        title = h["title"]
-        label, conf = hf_predict(title)
-        results.append({
-            "title": title,
-            "source": h.get("source",""),
-            "published": h.get("published",""),
-            "label": label,
-            "confidence": conf,
-            "summary": summarize(title)
-        })
+    title = h["title"]
+    label, conf = hf_predict(title)
+    results.append({
+        "title": title,
+        "source": h.get("source",""),
+        "published": h.get("published",""),
+        "label": label,
+        "confidence": conf,
+        "summary": summarize(title)
+    })
 
     return render_template_string(html_template, results=results, query=query, error_msg=error_msg, loading=loading)
 

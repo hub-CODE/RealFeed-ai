@@ -1,23 +1,12 @@
 services:
   - type: web
-    name: realfeed-ai
+    name: RealFeed
     env: python
     plan: free
-
-    buildCommand: |
-      echo "Using Python version:"
-      python --version
-      pip install --upgrade pip
-      pip install -r requirements.txt
-
-    startCommand: gunicorn app:app --timeout 300
-
-    # Force correct Python version
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
     envVars:
-      PYTHON_VERSION: 3.10.14
-
-    # Increase memory for model loading
-    disk:
-      name: model-data
-      mountPath: /opt/render/project/model
-      sizeGB: 2
+      - key: PYTHON_VERSION
+        value: 3.10.12
+      - key: HF_TOKEN
+        sync: false
