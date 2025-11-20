@@ -319,19 +319,33 @@ def hf_predict(text):
         print("ERROR: HF_TOKEN missing.")
         return "UNKNOWN", 0.0
 
+    payload = {"inputs": text}
+
     try:
-        payload = {"inputs": text}
         response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+        data = response.json()
 
-        data = response.json()[0][0]
+        # If API is loading or error
+        if isinstance(data, dict) and "error" in data:
+            print("HF API Error:", data["error"])
+            return "UNKNOWN", 0.0
 
-        raw_label = data.get("label", "UNKNOWN")
-        confidence = round(float(data.get("score", 0.0)) * 100, 2)
+        # Sometimes HF returns a dict with estimated time
+        if isinstance(data, dict) and "estimated_time" in data:
+            print("Model warming up...")
+            return "UNKNOWN", 0.0
 
-        if raw_label in ["LABEL_0", "0", "NEGATIVE"]:
-            label = "REAL"
-        else:
+        # Normal expected format
+        output = data[0][0]
+
+        raw_label = output.get("label", "")
+        confidence = round(float(output.get("score", 0.0)) * 100, 2)
+
+        # Fix label mapping based on model docs
+        if raw_label in ["LABEL_0", "0"]:
             label = "FAKE"
+        else:
+            label = "REAL"
 
         return label, confidence
 
