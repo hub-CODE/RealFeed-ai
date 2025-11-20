@@ -299,12 +299,27 @@ from flask import jsonify
 
 # ---------------- HF PREDICT ----------------
 
+import os
 import requests
 
-API_URL = "https://router.huggingface.co/hf-inference/your-model"
+# Get HF_TOKEN from environment variables
+HF_TOKEN = os.environ.get("HF_TOKEN")
+if not HF_TOKEN:
+    raise ValueError("HF_TOKEN is not set in environment variables!")
+
+model_id = "gpt2"  # Replace with your desired model
+API_URL = f"https://router.huggingface.co/hf-inference/{model_id}"
 headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-response = requests.post(API_URL, headers=headers, json={"inputs": "Hello"})
+payload = {"inputs": "Hello, how are you?"}
+
+response = requests.post(API_URL, headers=headers, json=payload)
+
+if response.status_code == 200:
+    print(response.json())
+else:
+    print(f"Error {response.status_code}: {response.text}")
+
 
 
 def hf_predict(text):
