@@ -354,16 +354,17 @@ def home():
         else: error_msg="No results found or NewsAPI returned nothing."
 
     for h in headlines:
-    title = h["title"]
-    label, conf = hf_predict(title)
-    results.append({
-        "title": title,
-        "source": h.get("source",""),
-        "published": h.get("published",""),
-        "label": label,
-        "confidence": conf,
-        "summary": summarize(title)
+        title = h["title"]
+        label, conf = hf_predict(title)
+        results.append({
+           "title": title,
+           "source": h.get("source", ""),
+           "published": h.get("published", ""),
+           "label": label,
+           "confidence": conf,
+           "summary": summarize(title)
     })
+
 
     return render_template_string(html_template, results=results, query=query, error_msg=error_msg, loading=loading)
 
