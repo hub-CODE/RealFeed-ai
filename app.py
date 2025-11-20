@@ -298,21 +298,14 @@ import json
 from flask import jsonify
 
 # ---------------- HF PREDICT ----------------
-import requests
-import os
-
-HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://api-inference.huggingface.co/models/mrm8488/bert-base-cased-finetuned-fake-news"
-
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 import requests
-import os
 
-HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://api-inference.huggingface.co/models/mrm8488/bert-base-cased-finetuned-fake-news"
+API_URL = "https://router.huggingface.co/hf-inference/your-model"
+headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
 
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+response = requests.post(API_URL, headers=headers, json={"inputs": "Hello"})
+
 
 def hf_predict(text):
     if not HF_TOKEN:
