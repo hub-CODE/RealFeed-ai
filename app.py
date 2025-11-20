@@ -27,7 +27,7 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 logger.info(f"HF_TOKEN present: {bool(HF_TOKEN)}")
 
 model_id = "mrm8488/bert-tiny-finetuned-fake-news"
-API_URL = f"https://api-inference.huggingface.co/models/{model_id}"
+API_URL = "https://router.huggingface.co/hf-inference/models"
 
 headers = {
     "Authorization": f"Bearer {HF_TOKEN}" if HF_TOKEN else "",
@@ -39,14 +39,19 @@ def hf_predict(text):
     if not HF_TOKEN:
         logger.warning("HF_TOKEN not set, using fallback")
         # Return more realistic fake data
-        if any(word in text.lower() for word in ['fake', 'false', 'hoax', 'scam']):
+        if any(word in text.lower() for word in ['fake', 'false', 'hoax', 'scam', 'conspiracy']):
             return "FAKE", 78.0
+        elif any(word in text.lower() for word in ['breakthrough', 'discovery', 'research', 'study']):
+            return "REAL", 92.0
         return "REAL", 85.0
     
     if not text or text == "[Removed]":
         return "UNVERIFIED", 0.0
 
-    payload = {"inputs": text}
+    payload = {
+        "inputs": text,
+        "model": model_id
+    }
     
     try:
         response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
@@ -63,14 +68,24 @@ def hf_predict(text):
 
         data = response.json()
         
-        # Handle different response formats
+        # Router API returns different format
         if isinstance(data, list) and len(data) > 0:
+            # Standard format: [{'label': 'LABEL', 'score': 0.99}]
             prediction = data[0]
             label = prediction.get('label', 'UNKNOWN')
             score = prediction.get('score', 0.0)
-        elif isinstance(data, dict) and 'label' in data:
-            label = data.get('label', 'UNKNOWN')
-            score = data.get('score', 0.0)
+        elif isinstance(data, dict):
+            # Check for different possible response formats
+            if 'outputs' in data and isinstance(data['outputs'], list) and len(data['outputs']) > 0:
+                prediction = data['outputs'][0]
+                label = prediction.get('label', 'UNKNOWN')
+                score = prediction.get('score', 0.0)
+            elif 'label' in data:
+                label = data.get('label', 'UNKNOWN')
+                score = data.get('score', 0.0)
+            else:
+                logger.warning(f"Unexpected response format: {data}")
+                return "UNKNOWN", 0.0
         else:
             logger.warning(f"Unexpected response format: {data}")
             return "UNKNOWN", 0.0
@@ -78,7 +93,7 @@ def hf_predict(text):
         confidence = round(float(score) * 100, 2)
         
         # Map labels to consistent format
-        if label.upper() in ['FAKE', 'LABEL_0']:
+        if label.upper() in ['FAKE', 'LABEL_0', 'LABEL_1']:
             return "FAKE", confidence
         else:
             return "REAL", confidence
@@ -116,7 +131,6 @@ def get_latest_headlines(query="", page_size=6):
     try:
         response = requests.get(base_url, params=params, timeout=10)
         logger.info(f"NewsAPI request to: {base_url}")
-        logger.info(f"NewsAPI params: {params}")
         
         if response.status_code == 200:
             data = response.json()
@@ -160,7 +174,8 @@ def create_fallback_results(query=""):
             f"New research reveals insights about {query}",
             f"Experts discuss future of {query}",
             f"Breaking: Major announcement regarding {query}",
-            f"Market trends show growth in {query} sector"
+            f"Market trends show growth in {query} sector",
+            f"International conference focuses on {query} innovations"
         ]
     else:
         fallback_headlines = FALLBACK_HEADLINES
@@ -238,6 +253,32 @@ def classify_text():
         "label": label,
         "confidence": confidence,
         "is_demo": not bool(HF_TOKEN)
+    }
+
+@app.route("/test-classify")
+def test_classify():
+    """Test endpoint to verify classification is working"""
+    test_texts = [
+        "Scientists discover new planet in habitable zone",
+        "Fake news about celebrity death spreads online",
+        "Breaking news: Major earthquake reported",
+        "This is completely made up conspiracy theory"
+    ]
+    
+    results = []
+    for text in test_texts:
+        label, confidence = hf_predict(text)
+        results.append({
+            "text": text,
+            "label": label,
+            "confidence": confidence,
+            "using_hf_token": bool(HF_TOKEN)
+        })
+    
+    return {
+        "test_results": results,
+        "hf_token_configured": bool(HF_TOKEN),
+        "model": model_id
     }
 
 @app.route("/debug")
@@ -510,6 +551,7 @@ HTML_TEMPLATE = """
         {% if not hf_token_configured %}
         <div class="demo-notice">
             🔧 Demo Mode: Using sample classifications. Add HF_TOKEN for real AI analysis.
+            <br><small>Visit /test-classify to see classification examples</small>
         </div>
         {% endif %}
 
@@ -547,6 +589,9 @@ HTML_TEMPLATE = """
 
         <div class="footer">
             Built by <strong style="color: var(--accent);">Hubayl</strong> • Data from NewsAPI.org
+            {% if not hf_token_configured %}
+            <br><small><a href="/test-classify" style="color: var(--muted);">Test Classification</a></small>
+            {% endif %}
         </div>
     </div>
 
