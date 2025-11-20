@@ -307,50 +307,35 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
     raise ValueError("HF_TOKEN is not set in environment variables!")
 
-model_id = "gpt2"  # Replace with your desired model
+model_id = "bert-base-cased-finetuned-fake-news"
 API_URL = f"https://router.huggingface.co/hf-inference/{model_id}"
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-
-payload = {"inputs": "Hello, how are you?"}
-
-response = requests.post(API_URL, headers=headers, json=payload)
-
-if response.status_code == 200:
-    print(response.json())
-else:
-    print(f"Error {response.status_code}: {response.text}")
-
-
+headers = {
+    "Authorization": f"Bearer {HF_TOKEN}",
+    "Content-Type": "application/json"
+}
 
 def hf_predict(text):
-    if not HF_TOKEN:
-        print("ERROR: HF_TOKEN missing.")
-        return "UNKNOWN", 0.0
-
     payload = {"inputs": text}
 
     try:
         response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+
+        if response.status_code != 200:
+            print("HF API Error:", response.status_code, response.text)
+            return "UNKNOWN", 0.0
+
         data = response.json()
 
-        # If API is loading or error
-        if isinstance(data, dict) and "error" in data:
-            print("HF API Error:", data["error"])
+        # Check response format
+        if not data or not isinstance(data, list) or not isinstance(data[0], dict):
+            print("HF API returned invalid data:", data)
             return "UNKNOWN", 0.0
 
-        # Sometimes HF returns a dict with estimated time
-        if isinstance(data, dict) and "estimated_time" in data:
-            print("Model warming up...")
-            return "UNKNOWN", 0.0
+        raw_label = data[0].get("label", "UNKNOWN")
+        confidence = round(float(data[0].get("score", 0.0)) * 100, 2)
 
-        # Normal expected format
-        output = data[0][0]
-
-        raw_label = output.get("label", "")
-        confidence = round(float(output.get("score", 0.0)) * 100, 2)
-
-        # Fix label mapping based on model docs
-        if raw_label in ["LABEL_0", "0"]:
+        # Optional: map labels if your model uses different naming
+        if raw_label.upper() in ["FAKE", "LABEL_0", "0"]:
             label = "FAKE"
         else:
             label = "REAL"
@@ -360,6 +345,12 @@ def hf_predict(text):
     except Exception as e:
         print("Error in hf_predict:", e)
         return "UNKNOWN", 0.0
+
+# Example usage
+if __name__ == "__main__":
+    text = "Breaking news: Scientists discovered a cure for the common cold!"
+    label, conf = hf_predict(text)
+    print(f"Label: {label}, Confidence: {conf}%")
 
 
 # ---------------- ROUTE ----------------
