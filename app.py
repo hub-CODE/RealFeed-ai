@@ -299,8 +299,6 @@ from flask import jsonify
 
 # ---------------- HF PREDICT ----------------
 
-# ---------------- HF PREDICT ----------------
-# ---------------- HF PREDICT ----------------
 import os
 import requests
 
@@ -326,21 +324,27 @@ def hf_predict(text):
     try:
         response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
 
+        # Router returns 200 only on success
         if response.status_code != 200:
             print("HF API Error:", response.status_code, response.text)
             return "UNKNOWN", 0.0
 
         data = response.json()
 
+        # Router returns {"outputs": [{"label": "...", "score": ...}]}
         outputs = data.get("outputs", [])
         if not outputs:
             print("HF API invalid:", data)
             return "UNKNOWN", 0.0
 
-        raw_label = outputs[0].get("label", "UNKNOWN")
-        confidence = round(float(outputs[0].get("score", 0.0)) * 100, 2)
+        prediction = outputs[0]
+        raw_label = prediction.get("label", "UNKNOWN")
+        score = prediction.get("score", 0.0)
 
-        if raw_label.upper() in ["FAKE", "LABEL_0", "0"]:
+        confidence = round(float(score) * 100, 2)
+
+        # Model uses FAKE / REAL
+        if raw_label.lower() == "fake":
             label = "FAKE"
         else:
             label = "REAL"
@@ -350,6 +354,7 @@ def hf_predict(text):
     except Exception as e:
         print("Error in hf_predict:", e)
         return "UNKNOWN", 0.0
+
 
 # ---------------- ROUTE ----------------
 @app.route("/", methods=["GET","POST"])
