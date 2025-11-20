@@ -308,7 +308,7 @@ if not HF_TOKEN:
     raise ValueError("HF_TOKEN is not set in environment variables!")
 
 model_id = "bert-base-cased-finetuned-fake-news"
-API_URL = f"https://router.huggingface.co/hf-inference/{model_id}"
+API_URL = f"https://api-inference.huggingface.co/models/{model_id}"
 headers = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
@@ -326,7 +326,6 @@ def hf_predict(text):
 
         data = response.json()
 
-        # Check response format
         if not data or not isinstance(data, list) or not isinstance(data[0], dict):
             print("HF API returned invalid data:", data)
             return "UNKNOWN", 0.0
@@ -334,7 +333,7 @@ def hf_predict(text):
         raw_label = data[0].get("label", "UNKNOWN")
         confidence = round(float(data[0].get("score", 0.0)) * 100, 2)
 
-        # Optional: map labels if your model uses different naming
+        # Map labels properly
         if raw_label.upper() in ["FAKE", "LABEL_0", "0"]:
             label = "FAKE"
         else:
